@@ -9,43 +9,12 @@
 #include <fcntl.h>
 #include <linux/joystick.h>
 
-#define NUM_THREADS        3
-#define JOY_DEV                "/dev/input/js0"
-#define HZ                                12
+#define NUM_THREADS        2
+#define JOY_DEV            "/dev/input/js0"
 
-const char FILENAME[] = "./joystickLog.out";
 char axisDesc[15][5] = { "X", "Y", "Z", "R", "A", "B", "C", "D", "E", "F", "G", "H", "I" };
 char numAxis[20], numButtons[20], value[20][20], timeSec[20], timeMilli[20];
 int num_of_axis;
-
-void write_to_log() {
-	sleep(1);
-	int cnt;
-	FILE * daFile;
-	daFile = fopen(FILENAME, "w+");
-
-	//        WRITE A HEADER ON THE OUPUT FILE
-	fprintf(daFile, "#,");
-	for (cnt = 0; cnt < num_of_axis; cnt++)
-		if (cnt < num_of_axis - 1)        fprintf(daFile, "%s,", axisDesc[cnt]);
-		else                                                                fprintf(daFile, "%s", axisDesc[cnt]);
-	fprintf(daFile, "\r\n");
-
-	while (1) {
-		fprintf(daFile, "%s.%s, ", timeSec, timeMilli);
-		for (cnt = 0; cnt < num_of_axis; cnt++) {
-			if (cnt < num_of_axis - 1)        fprintf(daFile, "%s, ", value[cnt]);
-			else                                                                fprintf(daFile, "%s ", value[cnt]);
-		}
-		fprintf(daFile, "\r\n");
-		usleep(83333);
-	}
-        
-	fprintf(daFile, "%s.%s Len = %d ", timeSec, timeMilli, strlen(timeMilli));
-
-	fprintf(daFile, "\r\n");
-	fflush(daFile);
-}
 
 void write_to_screen() {
 	struct timeb seconds;
@@ -163,25 +132,22 @@ void *ThreadProcs(void *threadid) {
 	if (thread_id == 1) {
 	//        THIS THREAD WILL MAKE THE PROGRAM EXIT
 		int ch;
-		nodelay(stdscr, TRUE);                                //        SETUP NON BLOCKING INPUT
+		nodelay(stdscr, TRUE);                         //        SETUP NON BLOCKING INPUT
 		while (1) {
-			if ((ch = getch()) == ERR) usleep(16666);                //        USER HASN'T RESPONDED
+			if ((ch = getch()) == ERR) usleep(16666);  //        USER HASN'T RESPONDED
 			else if (ch == 'q') {                        
 				endwin();
-				exit(0);                        //        QUIT ALL THREADS
+				exit(0);                               //        QUIT ALL THREADS
 			}
 		}
-	}
-	if (thread_id == 2) {
-		write_to_log();
 	}
 }
 
 int main(int argc, char *argv[]) {
-	initscr();                                                                        //        INIT THE SCREEN FOR CURSES
+	initscr();                                         //        INIT THE SCREEN FOR CURSES
 	pthread_t threads[NUM_THREADS];
 	int rc, t;
-	for (t = 0; t < NUM_THREADS; t++) {        //        MAKE 2 NEW THREADS
+	for (t = 0; t < NUM_THREADS; t++) {                //        MAKE 2 NEW THREADS
 		rc = pthread_create(&threads[t], NULL, ThreadProcs, (void *)t);
 		if (rc) {
 			printf("ERROR; return code from pthread_create() is %d\n", rc);
