@@ -1,3 +1,110 @@
+#include<unistd.h>
+#include<string.h>
+#include<stdio.h>
+#include<fcntl.h>
+
+class LinuxFile
+{
+private:
+	int m_Handle;
+
+public:
+	LinuxFile(const char *pFile, int flags = O_RDWR)
+	{
+		m_Handle = open(pFile, flags);
+	}
+
+	~LinuxFile()
+	{
+		if (m_Handle != -1)
+			close(m_Handle);
+	}
+
+	size_t Write(const void *pBuffer, size_t size)
+	{
+		return write(m_Handle, pBuffer, size);
+	}
+
+	size_t Read(void *pBuffer, size_t size)
+	{
+		return read(m_Handle, pBuffer, size);
+	}
+
+	size_t Write(const char *pText)
+	{
+		return Write(pText, strlen(pText));
+	}
+
+	size_t Write(int number)
+	{
+		char szNum[32];
+		snprintf(szNum, sizeof(szNum), "%d", number);
+		return Write(szNum);
+	}
+};
+
+class LinuxGPIOExporter
+{
+protected:
+	int m_Number;
+
+public:
+	LinuxGPIOExporter(int number)
+		: m_Number(number)
+	{
+		LinuxFile("/sys/class/gpio/export", O_WRONLY).Write(number);
+	}
+
+	~LinuxGPIOExporter()
+	{
+		LinuxFile("/sys/class/gpio/unexport", 
+			O_WRONLY).Write(m_Number);
+	}
+};
+
+class LinuxGPIO : public LinuxGPIOExporter
+{
+public:
+	LinuxGPIO(int number)
+		: LinuxGPIOExporter(number)
+	{
+	}
+
+	void SetValue(bool value)
+	{
+		char szFN[128];
+		snprintf(szFN,
+			sizeof(szFN), 
+			"/sys/class/gpio/gpio%d/value",
+			m_Number);
+		LinuxFile(szFN).Write(value ? "1" : "0");
+	}
+
+	void SetDirection(bool isOutput)
+	{
+		char szFN[128];
+		snprintf(szFN,
+			sizeof(szFN), 
+			"/sys/class/gpio/gpio%d/direction",
+			m_Number);
+		LinuxFile(szFN).Write(isOutput ? "out" : "in");
+	}
+};
+
+/*int main(int argc, char *argv[])
+{
+	LinuxGPIO gpio27(27);
+	gpio27.SetDirection(true);
+	bool on = true;
+	for (;;)
+	{
+		printf("Switching %s the LED...\n", on ? "on" : "off");
+		gpio27.SetValue(on);
+		on = !on;
+		sleep(1);
+	}
+}*/
+
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -9,7 +116,7 @@
 #include <fcntl.h>
 #include <linux/joystick.h>
 
-#define NUM_THREADS        2
+#define NUM_THREADS        3
 #define JOY_DEV            "/dev/input/js0"
 
 char axisDesc[15][5] = { "X", "Y", "Z", "R", "A", "B", "C", "D", "E", "F", "G", "H", "I" };
@@ -22,6 +129,9 @@ void write_to_screen() {
 	char *button = NULL, name_of_joystick[80];
 	struct js_event js;
 	time_t theTime;
+	
+	LinuxGPIO gpio27(27);
+	gpio27.SetDirection(true);
 
 	wmove(stdscr, 8, 0);
 	addstr("Type \"q\" to quit.\n");
@@ -117,8 +227,62 @@ void write_to_screen() {
 		wmove(stdscr, 6, 17);
 		addstr(ctime(&theTime));
                       
-		wmove(stdscr, 10, 0);
+		wmove(stdscr, 12, 0);
+		
+		bool led_state = false;
+		if (axis[1] > 100)
+		{			
+			addstr("Down");
+		}
+		else if (axis[1] < -100)
+		{
+			led_state = true;
+			wmove(stdscr, 12, 0);
+			addstr("Up");
+		}
+		else
+		{
+			addstr("      ");
+		}
+		
+		gpio27.SetValue(led_state);
+		
+		wmove(stdscr, 15, 0);
 		refresh();
+	}
+}
+
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <stdio.h>
+
+int UdpServer()
+{
+	int sockfd, n;
+	struct sockaddr_in servaddr, cliaddr;
+	socklen_t len;
+	char mesg[1000];
+	int returnv;
+
+	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+
+	bzero(&servaddr, sizeof(servaddr));
+	servaddr.sin_family = AF_INET;
+	servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	servaddr.sin_port = htons(1234);
+	bind(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
+
+	for (;;)
+	{
+		len = sizeof(cliaddr);
+		n = recvfrom(sockfd, mesg, 1000, 0, (struct sockaddr *)&cliaddr, &len);
+		printf("-------------------------------------------------------\n");
+		mesg[n] = 0;
+		printf("Received the following:\n");
+		printf("%s", mesg);
+		printf("-------------------------------------------------------\n");
+		returnv = sendto(sockfd, mesg, n, 0, (struct sockaddr *)&cliaddr, len);
+		printf("Sent %d bytes.\n", returnv);
 	}
 }
 
@@ -140,6 +304,11 @@ void *ThreadProcs(void *threadid) {
 				exit(0);                               //        QUIT ALL THREADS
 			}
 		}
+	}
+	
+	if (thread_id == 2)
+	{
+		UdpServer();
 	}
 }
 
